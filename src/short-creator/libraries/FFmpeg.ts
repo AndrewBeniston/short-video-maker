@@ -90,4 +90,93 @@ export class FFMpeg {
         });
     });
   }
+
+  async getVideoMetadata(
+    videoPath: string,
+  ): Promise<{ duration: number; width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        const stream = metadata.streams.find((s) => s.width && s.height);
+        resolve({
+          duration: metadata.format?.duration ?? 0,
+          width: stream?.width ?? 0,
+          height: stream?.height ?? 0,
+        });
+      });
+    });
+  }
+
+  async extractAudio(
+    videoPath: string,
+    wavOutput: string,
+    mp3Output: string,
+  ): Promise<number> {
+    const meta = await this.getVideoMetadata(videoPath);
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(videoPath)
+        .noVideo()
+        .audioCodec("pcm_s16le")
+        .audioChannels(1)
+        .audioFrequency(16000)
+        .on("end", resolve)
+        .on("error", reject)
+        .save(wavOutput);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(videoPath)
+        .noVideo()
+        .audioCodec("libmp3lame")
+        .on("end", resolve)
+        .on("error", reject)
+        .save(mp3Output);
+    });
+
+    return meta.duration;
+  }
+
+  async mergeVideosWithTransitions(
+    videos: string[],
+    output: string,
+    fadeDuration = 1,
+  ): Promise<void> {
+    const metas = await Promise.all(
+      videos.map((v) => this.getVideoMetadata(v)),
+    );
+    return new Promise((resolve, reject) => {
+      let command = ffmpeg();
+      videos.forEach((v) => {
+        command = command.addInput(v);
+      });
+
+      const filterParts: string[] = [];
+      let offset = metas[0].duration - fadeDuration;
+      filterParts.push(
+        `[0:v][1:v]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[v1]`,
+      );
+      filterParts.push(`[0:a][1:a]acrossfade=d=${fadeDuration}[a1]`);
+
+      for (let i = 2; i < videos.length; i++) {
+        offset += metas[i - 1].duration - fadeDuration;
+        filterParts.push(
+          `[v${i - 1}][${i}:v]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[v${i}]`,
+        );
+        filterParts.push(
+          `[a${i - 1}][${i}:a]acrossfade=d=${fadeDuration}[a${i}]`,
+        );
+      }
+
+      const lastIndex = videos.length - 1;
+      command
+        .complexFilter(filterParts, [`v${lastIndex}`, `a${lastIndex}`])
+        .outputOptions(["-map", `[v${lastIndex}]`, "-map", `[a${lastIndex}]`])
+        .on("end", resolve)
+        .on("error", reject)
+        .save(output);
+    });
+  }
 }
