@@ -88,6 +88,42 @@ export class APIRouter {
       },
     );
 
+    this.router.post(
+      "/combine-videos",
+      async (req: ExpressRequest, res: ExpressResponse) => {
+        const { videos } = req.body as { videos: string[] };
+        if (!videos || !Array.isArray(videos) || videos.length === 0) {
+          res.status(400).json({ error: "videos is required" });
+          return;
+        }
+        try {
+          const combineId = await this.shortCreator.combineVideos(videos);
+          res.status(201).json({ combineId });
+        } catch (error: unknown) {
+          logger.error(error, "Error combining videos");
+          res.status(500).json({ error: "failed" });
+        }
+      },
+    );
+
+    this.router.post(
+      "/caption-video",
+      async (req: ExpressRequest, res: ExpressResponse) => {
+        const { combineId } = req.body as { combineId: string };
+        if (!combineId) {
+          res.status(400).json({ error: "combineId is required" });
+          return;
+        }
+        try {
+          const videoId = await this.shortCreator.captionVideo(combineId);
+          res.status(201).json({ videoId });
+        } catch (error: unknown) {
+          logger.error(error, "Error captioning video");
+          res.status(500).json({ error: "failed" });
+        }
+      },
+    );
+
     this.router.get(
       "/music-tags",
       (req: ExpressRequest, res: ExpressResponse) => {

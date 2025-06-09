@@ -294,4 +294,85 @@ export class ShortCreator {
   public ListAvailableVoices(): string[] {
     return this.kokoro.listAvailableVoices();
   }
+
+  public async combineVideos(videoUrls: string[]): Promise<string> {
+    const id = cuid();
+    const localPaths: string[] = [];
+    for (const url of videoUrls) {
+      if (url.startsWith("http")) {
+        const tmp = path.join(this.config.tempDirPath, `${cuid()}.mp4`);
+        await new Promise<void>((resolve, reject) => {
+          const fileStream = fs.createWriteStream(tmp);
+          https
+            .get(url, (response: http.IncomingMessage) => {
+              if (response.statusCode !== 200) {
+                reject(
+                  new Error(`Failed to download video: ${response.statusCode}`),
+                );
+                return;
+              }
+              response.pipe(fileStream);
+              fileStream.on("finish", () => {
+                fileStream.close();
+                resolve();
+              });
+            })
+            .on("error", reject);
+        });
+        localPaths.push(tmp);
+      } else {
+        localPaths.push(url);
+      }
+    }
+
+    const output = path.join(this.config.tempDirPath, `${id}.mp4`);
+    await this.ffmpeg.mergeVideosWithTransitions(localPaths, output);
+    return id;
+  }
+
+  public async captionVideo(combineId: string): Promise<string> {
+    const inputPath = path.join(this.config.tempDirPath, `${combineId}.mp4`);
+    const wavPath = path.join(this.config.tempDirPath, `${combineId}.wav`);
+    const mp3Path = path.join(this.config.tempDirPath, `${combineId}.mp3`);
+
+    const duration = await this.ffmpeg.extractAudio(
+      inputPath,
+      wavPath,
+      mp3Path,
+    );
+    const captions = await this.whisper.CreateCaption(wavPath);
+
+    const { width, height } = await this.ffmpeg.getVideoMetadata(inputPath);
+    const orientation =
+      width > height ? OrientationEnum.landscape : OrientationEnum.portrait;
+
+    const scenes: Scene[] = [
+      {
+        captions,
+        video: `http://localhost:${this.config.port}/api/tmp/${combineId}.mp4`,
+        audio: {
+          url: `http://localhost:${this.config.port}/api/tmp/${combineId}.mp3`,
+          duration,
+        },
+      },
+    ];
+
+    const videoId = cuid();
+    await this.remotion.render(
+      {
+        music: {
+          file: "",
+          url: "",
+          start: 0,
+          end: 0,
+        },
+        scenes,
+        config: { durationMs: duration * 1000 },
+      },
+      videoId,
+      orientation,
+    );
+
+    return videoId;
+  }
 }

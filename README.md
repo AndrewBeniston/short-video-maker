@@ -319,6 +319,34 @@ curl --location 'localhost:3123/api/short-video/cm9ekme790000hysi5h4odlt1'
 
 Response: the binary data of the video.
 
+### POST `/api/combine-videos`
+
+```bash
+curl --location 'localhost:3123/api/combine-videos' \
+--header 'Content-Type: application/json' \
+--data '{"videos": ["http://example.com/a.mp4", "http://example.com/b.mp4"]}'
+```
+
+```bash
+{
+    "combineId": "cuid123"
+}
+```
+
+### POST `/api/caption-video`
+
+```bash
+curl --location 'localhost:3123/api/caption-video' \
+--header 'Content-Type: application/json' \
+--data '{"combineId": "cuid123"}'
+```
+
+```bash
+{
+    "videoId": "cuid456"
+}
+```
+
 ### GET `/api/short-videos`
 
 ```bash
